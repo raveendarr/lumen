@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jan 04, 2025 at 06:54 AM
+-- Generation Time: Jan 04, 2025 at 07:21 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -65,6 +65,20 @@ INSERT INTO `inventory` (`id`, `product_id`, `stock_level`, `last_updated`) VALU
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `notifications`
+--
+
+CREATE TABLE `notifications` (
+  `id` int(11) NOT NULL,
+  `type` enum('Low Stock','Pending Order','Overdue Order') NOT NULL,
+  `message` text NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `is_read` tinyint(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `orders`
 --
 
@@ -75,15 +89,29 @@ CREATE TABLE `orders` (
   `customer_id` int(11) DEFAULT NULL,
   `order_date` date DEFAULT curdate(),
   `quantity` int(11) NOT NULL,
-  `status` enum('Pending','Completed','Canceled') DEFAULT 'Pending'
+  `status` enum('Pending','Completed','Canceled') DEFAULT 'Pending',
+  `expected_delivery_date` date DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `orders`
 --
 
-INSERT INTO `orders` (`id`, `product_id`, `supplier_id`, `customer_id`, `order_date`, `quantity`, `status`) VALUES
-(1, 1, 1, 1, '2025-01-04', 10, 'Pending');
+INSERT INTO `orders` (`id`, `product_id`, `supplier_id`, `customer_id`, `order_date`, `quantity`, `status`, `expected_delivery_date`) VALUES
+(1, 1, 1, 1, '2025-01-04', 10, 'Pending', NULL);
+
+--
+-- Triggers `orders`
+--
+DELIMITER $$
+CREATE TRIGGER `Trigger_OrderAlert` AFTER UPDATE ON `orders` FOR EACH ROW BEGIN
+    IF NEW.status = 'Pending' AND NEW.expected_delivery_date < CURDATE() THEN
+        INSERT INTO Notifications (type, message)
+        VALUES ('Overdue Order', CONCAT('Order ID ', NEW.id, ' is overdue. Expected delivery was ', NEW.expected_delivery_date, '.'));
+    END IF;
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
@@ -109,6 +137,19 @@ CREATE TABLE `products` (
 
 INSERT INTO `products` (`id`, `name`, `description`, `product_image`, `category`, `model_number`, `serial_number`, `stock_level`, `reorder_point`) VALUES
 (1, 'Router', 'High-speed internet router', NULL, 'Networking', 'R12345', 'SN001', 50, 10);
+
+--
+-- Triggers `products`
+--
+DELIMITER $$
+CREATE TRIGGER `Trigger_LowStockNotification` AFTER UPDATE ON `products` FOR EACH ROW BEGIN
+    IF NEW.stock_level < NEW.reorder_point THEN
+        INSERT INTO Notifications (type, message)
+        VALUES ('Low Stock', CONCAT('Product "', NEW.name, '" has low stock: ', NEW.stock_level, ' units.'));
+    END IF;
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
@@ -172,6 +213,12 @@ ALTER TABLE `inventory`
   ADD KEY `product_id` (`product_id`);
 
 --
+-- Indexes for table `notifications`
+--
+ALTER TABLE `notifications`
+  ADD PRIMARY KEY (`id`);
+
+--
 -- Indexes for table `orders`
 --
 ALTER TABLE `orders`
@@ -216,6 +263,12 @@ ALTER TABLE `customers`
 --
 ALTER TABLE `inventory`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+
+--
+-- AUTO_INCREMENT for table `notifications`
+--
+ALTER TABLE `notifications`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `orders`
@@ -269,104 +322,3 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-
-SEARCHING & FILTERING
-
-1. Search Products by Name
-Search for products where the name contains a specific keyword (e.g., "Router").
-sql
-SELECT * 
-FROM Products
-WHERE name LIKE '%Router%';
----------------------------
-2. Search Products by Category
-Search for products belonging to a specific category (e.g., "Networking").
-
-sql
-Copy code
-SELECT * 
-FROM Products
-WHERE category = 'Networking';
------------------------------------------------------------------------------
-3. Search Products by Stock Level
-Search for products with a specific stock level (e.g., 50 units).
-
-sql
-Copy code
-SELECT * 
-FROM Products
-WHERE stock_level = 50;
------------------------------------------------------------------------------------------
-4. Filter Products: Low Stock
-Retrieve products where the stock level is below the reorder point (indicating low stock).
-
-sql
-Copy code
-SELECT * 
-FROM Products
-WHERE stock_level < reorder_point;
---------------------------------------------------------------------------------------------
-5. Filter Products: Out of Stock
-Retrieve products that are completely out of stock.
-
-sql
-Copy code
-SELECT * 
-FROM Products
-WHERE stock_level = 0;
----------------------------------------------------------------------------------------------
-6. Combined Search and Filter
-Search for products by name and filter by low stock.
-
-sql
-Copy code
-SELECT * 
-FROM Products
-WHERE name LIKE '%Router%' AND stock_level < reorder_point;
----------------------------------------------------------------------------------------
-7. Filter by Multiple Stock Statuses
-Retrieve products based on their stock status (e.g., low stock and out of stock).
-
-sql
-Copy code
-SELECT *, 
-       CASE 
-           WHEN stock_level = 0 THEN 'Out of Stock'
-           WHEN stock_level < reorder_point THEN 'Low Stock'
-           ELSE 'In Stock'
-       END AS stock_status
-FROM Products
-WHERE stock_level = 0 OR stock_level < reorder_point;
---------------------------------------------------------------------------
-8. Sort Results
-Sort the results of any search or filter query by a specific column, such as name or stock_level.
-
-Sort by Name (Ascending):
-
-sql
-Copy code
-SELECT * 
-FROM Products
-ORDER BY name ASC;
-Sort by Stock Level (Descending):
-
-sql
-Copy code
-SELECT * 
-FROM Products
-ORDER BY stock_level DESC;
-------------------------------------------------------------------------
-9. Pagination for Search and Filtering
-For large datasets, paginate the results to show a limited number of rows per page (e.g., 10 rows per page).
-
-sql
-Copy code
-SELECT * 
-FROM Products
-WHERE name LIKE '%Router%'
-ORDER BY name ASC
-LIMIT 10 OFFSET 0; -- Page 1 (Rows 1-10)
-Change OFFSET for other pages:
-
-Page 2: OFFSET 10
-Page 3: OFFSET 20, etc.
